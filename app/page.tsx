@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { allDiaries } from "./diaries.data";
+
+type Diary = {
+  id: number;
+  date: string;
+  title: string;
+  summary: string;
+  tags?: string[];
+};
 
 const PAGE_SIZE = 10;
 
@@ -31,13 +38,22 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const [inputPage, setInputPage] = useState<string>("1");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [allDiaries, setAllDiaries] = useState<Diary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/diaries")
+      .then((res) => res.json())
+      .then((data) => setAllDiaries(Array.isArray(data) ? data : []))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filteredDiaries = useMemo(() => {
     if (!selectedTag) return allDiaries;
     return allDiaries.filter((d) => (d.tags ?? []).includes(selectedTag));
-  }, [selectedTag]);
+  }, [selectedTag, allDiaries]);
 
-  const tagCounts = useMemo(() => getTagCounts(allDiaries), []);
+  const tagCounts = useMemo(() => getTagCounts(allDiaries), [allDiaries]);
   const maxTagCount = tagCounts[0]?.value ?? 1;
 
   const totalPosts = filteredDiaries.length;
@@ -124,7 +140,18 @@ export default function Home() {
 
         {/* 日记列表 */}
         <section className="space-y-4 border-t border-zinc-200 pt-6 text-sm dark:border-zinc-800">
-          {currentEntries.map((item) => (
+          {loading && (
+            <p className="px-3 text-xs text-zinc-500 dark:text-zinc-400">
+              加载中…
+            </p>
+          )}
+          {!loading && currentEntries.length === 0 && (
+            <p className="px-3 text-xs text-zinc-500 dark:text-zinc-400">
+              暂无文章
+            </p>
+          )}
+          {!loading &&
+            currentEntries.map((item) => (
             <article
               key={item.id}
               className="group flex gap-4 rounded-2xl px-3 py-4 transition hover:bg-zinc-100/70 dark:hover:bg-zinc-900/80"
@@ -154,6 +181,7 @@ export default function Home() {
               </div>
             </article>
           ))}
+
         </section>
 
         {/* 分页 */}
