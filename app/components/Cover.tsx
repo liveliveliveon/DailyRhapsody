@@ -35,13 +35,6 @@ export default function Cover() {
             href="/#entries"
             className="transition-opacity duration-200 ease-out hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent rounded"
           >
-            首页
-          </Link>
-          <span className="text-white/50" aria-hidden>·</span>
-          <Link
-            href="/#entries"
-            className="transition-opacity duration-200 ease-out hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent rounded"
-          >
             博客
           </Link>
           <span className="text-white/50" aria-hidden>·</span>
