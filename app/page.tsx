@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Cover from "./components/Cover";
 
 type Diary = {
   id: number;
@@ -89,21 +90,13 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-zinc-100 to-white px-4 py-10 font-sans text-zinc-900 dark:from-black dark:via-zinc-950 dark:to-black dark:text-zinc-50">
-      <main className="mx-auto flex max-w-3xl flex-col">
-        {/* 英雄区 */}
-        <header className="mb-8">
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-            Daily Rhapsody
-          </h1>
-          <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
-            I think, therefore I am.
-          </p>
-        </header>
+    <div className="min-h-screen bg-gradient-to-b from-zinc-100 to-white font-sans text-zinc-900 dark:from-black dark:via-zinc-950 dark:to-black dark:text-zinc-50">
+      <Cover />
 
+      <main id="entries" className="mx-auto flex max-w-3xl flex-col px-4 pt-16 pb-10 scroll-mt-4">
         {/* 标签词云 */}
         {tagCounts.length > 0 && (
-          <section className="mb-10 rounded-2xl border border-zinc-200 bg-white/60 px-4 py-5 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <section className="mb-10 rounded-2xl border border-zinc-200 bg-white/60 px-4 py-5 shadow-sm transition-apple dark:border-zinc-800 dark:bg-zinc-900/40">
             <p className="mb-3 text-[0.7rem] uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
               标签
             </p>
@@ -113,10 +106,10 @@ export default function Home() {
                   key={name}
                   type="button"
                   onClick={() => handleTagClick(name)}
-                  className={`rounded-full px-2.5 py-1 transition ${getSizeClass(value, maxTagCount)} ${
+                  className={`rounded-full px-2.5 py-1 transition-apple focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-zinc-900 ${getSizeClass(value, maxTagCount)} ${
                     selectedTag === name
                       ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 hover:scale-105 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                   }`}
                 >
                   {name}
@@ -129,7 +122,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => handleTagClick(selectedTag)}
-                  className="ml-2 underline"
+                  className="ml-2 rounded underline transition-apple hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2"
                 >
                   取消
                 </button>
@@ -154,7 +147,7 @@ export default function Home() {
             currentEntries.map((item) => (
             <article
               key={item.id}
-              className="group flex gap-4 rounded-2xl px-3 py-4 transition hover:bg-zinc-100/70 dark:hover:bg-zinc-900/80"
+              className="group flex gap-4 rounded-2xl px-3 py-4 transition-apple hover:bg-zinc-100/70 hover:shadow-md dark:hover:bg-zinc-900/80 dark:hover:shadow-black/10"
             >
               <div className="mt-1 shrink-0 text-[0.7rem] uppercase tracking-[0.18em] text-zinc-500 whitespace-nowrap dark:text-zinc-500">
                 {item.date}
@@ -190,7 +183,7 @@ export default function Home() {
             type="button"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="rounded-full border border-zinc-300 px-3 py-1 transition disabled:opacity-40 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="rounded-full border border-zinc-300 px-3 py-1 transition-apple disabled:opacity-40 hover:scale-[1.02] hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-700 dark:hover:bg-zinc-900 dark:focus:ring-offset-zinc-950"
           >
             上一页
           </button>
@@ -210,7 +203,7 @@ export default function Home() {
                   applyPageInput(inputPage);
                 }
               }}
-              className="flex h-7 w-14 items-center justify-center rounded-full border border-zinc-300 bg-transparent px-2 text-center text-[0.8rem] leading-none outline-none appearance-none focus:border-zinc-500 dark:border-zinc-700 dark:appearance-none dark:focus:border-zinc-400"
+              className="flex h-7 w-14 items-center justify-center rounded-full border border-zinc-300 bg-transparent px-2 text-center text-[0.8rem] leading-none outline-none appearance-none transition-apple focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400/30 dark:border-zinc-700 dark:appearance-none dark:focus:border-zinc-400"
             />
             <span>
               页
@@ -225,7 +218,7 @@ export default function Home() {
               if (page < totalPages) setPage((p) => p + 1);
             }}
             disabled={page >= totalPages}
-            className="rounded-full border border-zinc-300 px-3 py-1 transition disabled:opacity-40 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="rounded-full border border-zinc-300 px-3 py-1 transition-apple disabled:opacity-40 hover:scale-[1.02] hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:ring-offset-2 dark:border-zinc-700 dark:hover:bg-zinc-900 dark:focus:ring-offset-zinc-950"
           >
             下一页
           </button>
