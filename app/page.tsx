@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Cover from "./components/Cover";
 
 type Diary = {
@@ -41,6 +41,21 @@ export default function Home() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [allDiaries, setAllDiaries] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
+  const entriesRef = useRef<HTMLElement>(null);
+  const [entriesFlipped, setEntriesFlipped] = useState(false);
+
+  useEffect(() => {
+    const el = entriesRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([e]) => {
+        if (e?.isIntersecting) setEntriesFlipped(true);
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -50px 0px" }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     fetch("/api/diaries")
@@ -100,7 +115,12 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-b from-zinc-100 to-white font-sans text-zinc-900 dark:from-black dark:via-zinc-950 dark:to-black dark:text-zinc-50">
       <Cover />
 
-      <main id="entries" className="mx-auto flex max-w-3xl flex-col px-4 pt-16 pb-10 scroll-mt-4">
+      <div className="entries-flip-wrapper pt-4">
+        <main
+          ref={entriesRef}
+          id="entries"
+          className={`entries-flip-panel mx-auto flex max-w-3xl flex-col px-4 pt-12 pb-10 scroll-mt-4 ${entriesFlipped ? "entries-flip-visible" : ""}`}
+        >
         {/* 标签词云 */}
         {tagCounts.length > 0 && (
           <section className="mb-10 rounded-2xl border border-zinc-200 bg-white/60 px-4 py-5 shadow-sm transition-apple dark:border-zinc-800 dark:bg-zinc-900/40">
@@ -236,6 +256,7 @@ export default function Home() {
           <span>© {new Date().getFullYear()} DailyRhapsody</span>
         </footer>
       </main>
+      </div>
     </div>
   );
 }
