@@ -64,11 +64,30 @@ export default function Home() {
       .finally(() => setLoading(false));
   }, []);
 
-  // 刷新后始终从页面顶部开始，避免出现「一半封面一半列表」的错位
+  // 刷新/直链：有 #entries 时滚到列表顶部，否则从页面顶部开始，避免「一半封面一半列表」
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     window.history.scrollRestoration = "manual";
-    window.scrollTo(0, 0);
+    if (window.location.hash === "#entries") {
+      const el = document.getElementById("entries");
+      if (el) el.scrollIntoView({ block: "start", behavior: "instant" });
+    } else {
+      window.scrollTo(0, 0);
+    }
+  }, []);
+
+  // 直链 #entries：布局/图片稳定后再滚一次，避免封面图加载后顶高导致仍是一半一半
+  useEffect(() => {
+    if (typeof window === "undefined" || window.location.hash !== "#entries") return;
+    const el = document.getElementById("entries");
+    if (!el) return;
+    const fix = () => el.scrollIntoView({ block: "start", behavior: "instant" });
+    const t = setTimeout(fix, 120);
+    window.addEventListener("load", fix);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("load", fix);
+    };
   }, []);
 
   const filteredDiaries = useMemo(() => {
