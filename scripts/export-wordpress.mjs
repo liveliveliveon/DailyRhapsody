@@ -41,6 +41,9 @@ async function fetchAllPosts() {
     all.push(...data);
     if (data.length < PER_PAGE) break;
     page += 1;
+    if (data.length === PER_PAGE) {
+      await new Promise((r) => setTimeout(r, 800));
+    }
   }
 
   return all;
