@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Cover from "./components/Cover";
 
 type Diary = {
@@ -47,6 +47,13 @@ export default function Home() {
       .then((res) => res.json())
       .then((data) => setAllDiaries(Array.isArray(data) ? data : []))
       .finally(() => setLoading(false));
+  }, []);
+
+  // 刷新后始终从页面顶部开始，避免出现「一半封面一半列表」的错位
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    window.history.scrollRestoration = "manual";
+    window.scrollTo(0, 0);
   }, []);
 
   const filteredDiaries = useMemo(() => {
