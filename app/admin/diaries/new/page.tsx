@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ImageUpload from "../../ImageUpload";
+import TagInput from "../../TagInput";
 
 export default function NewDiaryPage() {
   const [date, setDate] = useState(
@@ -25,6 +26,7 @@ export default function NewDiaryPage() {
       .split(/[,，、\s]+/)
       .map((t) => t.trim())
       .filter(Boolean);
+    let success = false;
     try {
       const res = await fetch("/api/diaries", {
         method: "POST",
@@ -36,12 +38,15 @@ export default function NewDiaryPage() {
         setError(data.error ?? "保存失败");
         return;
       }
-      router.push("/admin");
-      router.refresh();
+      success = true;
     } catch {
       setError("网络错误");
     } finally {
       setLoading(false);
+    }
+    if (success) {
+      router.push("/admin");
+      router.refresh();
     }
   }
 
@@ -108,15 +113,11 @@ export default function NewDiaryPage() {
         </div>
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            标签（逗号或空格分隔）
+            标签
           </label>
-          <input
-            type="text"
-            value={tagsStr}
-            onChange={(e) => setTagsStr(e.target.value)}
-            placeholder="爱情, 她, 梦"
-            className="mt-1 w-full rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:text-zinc-50"
-          />
+          <div className="mt-1">
+            <TagInput value={tagsStr} onChange={setTagsStr} />
+          </div>
         </div>
         {error && (
           <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
