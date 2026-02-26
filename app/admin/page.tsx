@@ -75,57 +75,51 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <ul className="space-y-2">
+      <ul className="space-y-1">
         {diaries.map((d) => (
           <li
             key={d.id}
-            className="flex items-center justify-between gap-4 rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900"
+            className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900"
           >
-            <div className="min-w-0 flex-1 space-y-2">
+            <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
-                <span className="text-xs font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">
                   {d.date}
                 </span>
+                <span className="min-w-0 truncate font-semibold text-zinc-900 dark:text-zinc-50">
+                  {d.title || "（无标题）"}
+                </span>
               </div>
-              <p className="truncate text-base font-semibold text-zinc-900 dark:text-zinc-50">
-                {d.title || "（无标题）"}
-              </p>
               {d.summary && (
-                <div className="rounded-md border border-zinc-200 bg-zinc-50/80 px-2.5 py-1.5 dark:border-zinc-700 dark:bg-zinc-800/50">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                    摘要
-                  </span>
-                  <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-zinc-600 dark:text-zinc-400">
-                    {d.summary}
-                  </p>
-                </div>
+                <p className="mt-0.5 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">
+                  {d.summary}
+                </p>
               )}
               {(d.tags ?? []).length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {(d.tags ?? []).map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-600 dark:text-zinc-300"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
+                  {(d.tags ?? []).join(" · ")}
+                </p>
               )}
             </div>
-            <div className="flex shrink-0 gap-2">
+            <div className="flex shrink-0 items-center gap-0.5">
               <Link
                 href={`/admin/diaries/${d.id}/edit`}
-                className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                title="编辑"
               >
-                编辑
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
               </Link>
               <button
                 type="button"
                 onClick={() => remove(d.id)}
-                className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400"
+                title="删除"
               >
-                删除
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
               </button>
             </div>
           </li>
