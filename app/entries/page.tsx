@@ -501,11 +501,13 @@ export default function EntriesPage() {
         el.style.willChange = "";
         el.style.transform = "";
         document.body.style.overflow = "";
-        window.scrollTo(0, 0);
-        returnToTopPhaseRef.current = 0;
-        returningToTopRef.current = false;
         setIsReturnToTopAnimating(false);
         setScrollY(0);
+        requestAnimationFrame(() => {
+          window.scrollTo(0, 0);
+          returnToTopPhaseRef.current = 0;
+          returningToTopRef.current = false;
+        });
       }
     }
     returnToTopRafRef.current = requestAnimationFrame(tick);
