@@ -481,40 +481,56 @@ export default function EntriesPage() {
   totalPostsRef.current = totalPosts;
   const maxTagCount = tagCounts[0]?.value ?? 1;
 
-  useEffect(() => {
-    function onScroll() {
-      const y = typeof window !== "undefined" ? window.scrollY : 0;
-      const phase = returnToTopPhaseRef.current;
-      if (phase === 1 && y <= SCROLL_TARGET_CALENDAR) {
+  const runReturnToTop = useCallback(() => {
+    const targetCalendar = SCROLL_TARGET_CALENDAR;
+    const startY = typeof window !== "undefined" ? window.scrollY : 0;
+
+    const duration1 = Math.min(2400, 600 + Math.max(0, startY - targetCalendar) * 0.35);
+    const startT1 = performance.now();
+    function tick1(now: number) {
+      const elapsed = now - startT1;
+      const t = Math.min(elapsed / duration1, 1);
+      const progress = 1 - (1 - t) ** 2;
+      const y = startY + (targetCalendar - startY) * progress;
+      window.scrollTo(0, y);
+      if (t < 1) requestAnimationFrame(tick1);
+      else {
+        window.scrollTo(0, targetCalendar);
         returnToTopPhaseRef.current = 2;
         returningToTopRef.current = true;
-        const startY = y;
-        const duration = 920;
-        const startT = performance.now();
-        function easeOutQuint(t: number) {
-          return 1 - (1 - t) ** 5;
+        const duration2 = 1580;
+        const startT2 = performance.now();
+        function easeOutQuint(x: number) {
+          return 1 - (1 - x) ** 5;
         }
-        function tick(now: number) {
-          const elapsed = now - startT;
-          const t = Math.min(elapsed / duration, 1);
-          const progress = easeOutQuint(t);
-          const currentY = startY * (1 - progress);
+        function tick2(now: number) {
+          const elapsed2 = now - startT2;
+          const t2 = Math.min(elapsed2 / duration2, 1);
+          const prog = easeOutQuint(t2);
+          const currentY = targetCalendar * (1 - prog);
           window.scrollTo(0, currentY);
-          if (t < 1) requestAnimationFrame(tick);
+          if (t2 < 1) requestAnimationFrame(tick2);
           else {
             const nail = () => window.scrollTo(0, 0);
             nail();
-            [50, 120, 220, 350].forEach((ms) => setTimeout(nail, ms));
+            [60, 150, 280, 400].forEach((ms) => setTimeout(nail, ms));
             setTimeout(() => {
               returningToTopRef.current = false;
               returnToTopPhaseRef.current = 0;
               requestAnimationFrame(nail);
-              requestAnimationFrame(() => nail());
-            }, 420);
+              requestAnimationFrame(nail);
+            }, 450);
           }
         }
-        requestAnimationFrame(tick);
+        requestAnimationFrame(tick2);
       }
+    }
+    requestAnimationFrame(tick1);
+  }, []);
+
+  useEffect(() => {
+    function onScroll() {
+      const y = typeof window !== "undefined" ? window.scrollY : 0;
       if (y < 2 && returnToTopPhaseRef.current === 0) {
         returningToTopRef.current = false;
       }
@@ -723,7 +739,7 @@ export default function EntriesPage() {
                     className="absolute inset-0 z-10 cursor-pointer"
                     onClick={() => {
                       returnToTopPhaseRef.current = 1;
-                      window.scrollTo({ top: SCROLL_TARGET_CALENDAR, behavior: "smooth" });
+                      runReturnToTop();
                     }}
                     aria-label="回到顶部并展开"
                   />
