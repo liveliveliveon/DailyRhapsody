@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -108,7 +108,7 @@ function DefaultAvatar({
 const MAX_SUMMARY_LINES = 5;
 
 /** 本月日历热力图：仅方块，始终当前月，有发布的日期高亮 */
-function CalendarHeatmap({ datesWithPosts }: { datesWithPosts: Set<string> }) {
+const CalendarHeatmap = memo(function CalendarHeatmap({ datesWithPosts }: { datesWithPosts: Set<string> }) {
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth();
@@ -156,7 +156,7 @@ function CalendarHeatmap({ datesWithPosts }: { datesWithPosts: Set<string> }) {
       )}
     </div>
   );
-}
+});
 
 function EntrySummary({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -466,14 +466,12 @@ export default function EntriesPage() {
   const returningToTopRef = useRef(false);
   const headerCollapsedRef = useRef(false);
   const returnToTopPhaseRef = useRef<0 | 1 | 2>(0);
-  const lastScrollYUpdateRef = useRef(0);
   const eggPullAccumRef = useRef(0);
   const eggReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchLastYRef = useRef(0);
   const hasMoreRef = useRef(true);
   const totalPostsRef = useRef(0);
 
-  const SCROLL_TARGET_CALENDAR = 90;
   const datesWithPosts = useMemo(() => new Set(datesFromApi), [datesFromApi]);
   const totalPosts = total;
   const currentEntries = items;
@@ -483,66 +481,48 @@ export default function EntriesPage() {
   const maxTagCount = tagCounts[0]?.value ?? 1;
 
   const runReturnToTop = useCallback(() => {
-    const targetCalendar = SCROLL_TARGET_CALENDAR;
     const startY = typeof window !== "undefined" ? window.scrollY : 0;
+    if (startY <= 0) return;
 
-    const distance = Math.max(0, startY - targetCalendar);
-    const duration1 = Math.min(1420, 600 + 320 * Math.log(1 + distance / 300));
-    const startT1 = performance.now();
-    function tick1(now: number) {
-      const elapsed = now - startT1;
-      const t = Math.min(elapsed / duration1, 1);
-      const progress = 1 - (1 - t) ** 2;
-      const y = startY + (targetCalendar - startY) * progress;
+    returnToTopPhaseRef.current = 1;
+    returningToTopRef.current = true;
+    setScrollY(startY);
+
+    const duration = Math.min(3000, 600 + 320 * Math.log(1 + startY / 300));
+    const startT = performance.now();
+    function easeOutQuint(x: number) {
+      return 1 - (1 - x) ** 5;
+    }
+    function tick(now: number) {
+      const elapsed = now - startT;
+      const t = Math.min(elapsed / duration, 1);
+      const progress = easeOutQuint(t);
+      const y = startY * (1 - progress);
       window.scrollTo(0, y);
-      if (t < 1) requestAnimationFrame(tick1);
-      else {
-        window.scrollTo(0, targetCalendar);
-        returnToTopPhaseRef.current = 2;
-        returningToTopRef.current = true;
-        const duration2 = 1580;
-        const startT2 = performance.now();
-        function easeOutQuint(x: number) {
-          return 1 - (1 - x) ** 5;
-        }
-        function tick2(now: number) {
-          const elapsed2 = now - startT2;
-          const t2 = Math.min(elapsed2 / duration2, 1);
-          const prog = easeOutQuint(t2);
-          const currentY = targetCalendar * (1 - prog);
-          window.scrollTo(0, currentY);
-          if (t2 < 1) requestAnimationFrame(tick2);
-          else {
-            const nail = () => window.scrollTo(0, 0);
-            nail();
-            [60, 150, 280, 400].forEach((ms) => setTimeout(nail, ms));
-            setTimeout(() => {
-              returningToTopRef.current = false;
-              returnToTopPhaseRef.current = 0;
-              setScrollY(0);
-              requestAnimationFrame(nail);
-              requestAnimationFrame(nail);
-            }, 450);
-          }
-        }
-        requestAnimationFrame(tick2);
+      if (t < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        const nail = () => window.scrollTo(0, 0);
+        nail();
+        [60, 150, 280, 400].forEach((ms) => setTimeout(nail, ms));
+        setTimeout(() => {
+          returningToTopRef.current = false;
+          returnToTopPhaseRef.current = 0;
+          setScrollY(0);
+          requestAnimationFrame(nail);
+          requestAnimationFrame(nail);
+        }, 450);
       }
     }
-    requestAnimationFrame(tick1);
+    requestAnimationFrame(tick);
   }, []);
 
   useEffect(() => {
     function onScroll() {
+      if (returnToTopPhaseRef.current !== 0) return;
       const y = typeof window !== "undefined" ? window.scrollY : 0;
-      if (y < 2 && returnToTopPhaseRef.current === 0) {
-        returningToTopRef.current = false;
-      }
-      const inReturn = returnToTopPhaseRef.current !== 0;
-      const now = performance.now();
-      if (!inReturn || now - lastScrollYUpdateRef.current >= 80) {
-        lastScrollYUpdateRef.current = now;
-        setScrollY(y);
-      }
+      if (y < 2) returningToTopRef.current = false;
+      setScrollY(y);
     }
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
