@@ -467,48 +467,27 @@ export default function EntriesPage() {
   const maxTagCount = tagCounts[0]?.value ?? 1;
 
   const runReturnToTop = useCallback(() => {
-    const startY = typeof window !== "undefined" ? window.scrollY : 0;
+    if (typeof window === "undefined") return;
+    const startY = window.scrollY;
     if (startY <= 0) return;
 
     returnToTopPhaseRef.current = 1;
     returningToTopRef.current = true;
     setScrollY(startY);
-
-    const duration = Math.min(3000, 600 + 320 * Math.log(1 + startY / 300));
-    const startT = performance.now();
-    /** easeOutCubic：前快后慢，末尾自然减速，避免“最后突然加快” */
-    function easeOutCubic(x: number) {
-      return 1 - (1 - x) ** 3;
-    }
-
-    function tick(now: number) {
-      const elapsed = now - startT;
-      const t = Math.min(elapsed / duration, 1);
-      const progress = easeOutCubic(t);
-      const y = Math.round(startY * (1 - progress));
-      window.scrollTo({ top: y, left: 0, behavior: "auto" });
-      if (t < 1) {
-        requestAnimationFrame(tick);
-      } else {
-        const nail = () => window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-        nail();
-        [60, 150, 280, 400].forEach((ms) => setTimeout(nail, ms));
-        setTimeout(() => {
-          returningToTopRef.current = false;
-          returnToTopPhaseRef.current = 0;
-          setScrollY(0);
-          requestAnimationFrame(nail);
-          requestAnimationFrame(nail);
-        }, 450);
-      }
-    }
-    requestAnimationFrame(tick);
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
   }, []);
 
   useEffect(() => {
     function onScroll() {
-      if (returnToTopPhaseRef.current !== 0) return;
       const y = typeof window !== "undefined" ? window.scrollY : 0;
+      if (returnToTopPhaseRef.current !== 0) {
+        if (y < 2) {
+          returnToTopPhaseRef.current = 0;
+          returningToTopRef.current = false;
+          setScrollY(0);
+        }
+        return;
+      }
       if (y < 2) returningToTopRef.current = false;
       setScrollY(y);
     }
