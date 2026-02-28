@@ -95,3 +95,7 @@ input[type="number"] {
 .easter-egg-toast {
   animation: fade-in-up 0.4s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
 }
+.easter-egg-retract {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}

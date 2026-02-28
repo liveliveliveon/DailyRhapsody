@@ -459,10 +459,10 @@ export default function EntriesPage() {
   const [loading, setLoading] = useState(true);
   const [entriesFlipped, setEntriesFlipped] = useState(false);
   const [scrollY, setScrollY] = useState(0);
-  const [hasReachedBottom, setHasReachedBottom] = useState(false);
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const [eggRetracting, setEggRetracting] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const lastScrollYRef = useRef(0);
+  const eggHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     function onScroll() {
@@ -531,19 +531,31 @@ export default function EntriesPage() {
   }, [hasMore, loading, totalPosts]);
 
   useEffect(() => {
-    const onScroll = () => {
-      const y = window.scrollY;
+    const onWheel = (e: WheelEvent) => {
       const doc = document.documentElement;
-      const atBottom = y + window.innerHeight >= doc.scrollHeight - 80;
-      if (atBottom) setHasReachedBottom(true);
-      if (hasReachedBottom && lastScrollYRef.current > y && y < doc.scrollHeight - window.innerHeight - 60) {
-        setShowEasterEgg(true);
+      const atBottom = window.scrollY + window.innerHeight >= doc.scrollHeight - 60;
+      if (!atBottom || e.deltaY <= 0) return;
+      if (eggHideTimerRef.current) {
+        clearTimeout(eggHideTimerRef.current);
+        eggHideTimerRef.current = null;
       }
-      lastScrollYRef.current = y;
+      setEggRetracting(false);
+      setShowEasterEgg(true);
+      eggHideTimerRef.current = setTimeout(() => {
+        setEggRetracting(true);
+        eggHideTimerRef.current = setTimeout(() => {
+          setShowEasterEgg(false);
+          setEggRetracting(false);
+          eggHideTimerRef.current = null;
+        }, 280);
+      }, 1800);
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [hasReachedBottom]);
+    window.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      if (eggHideTimerRef.current) clearTimeout(eggHideTimerRef.current);
+    };
+  }, []);
 
   const handleTagClick = (tag: string) => {
     setSelectedTag((prev) => (prev === tag ? null : tag));
@@ -717,10 +729,12 @@ export default function EntriesPage() {
             <span>© {new Date().getFullYear()} DailyRhapsody</span>
           </footer>
 
-          {/* 到底后上滑彩蛋 */}
+          {/* 到底部后再向下滚动一次：显示彩蛋，约 1.8s 后自动缩回 */}
           {showEasterEgg && (
             <div
-              className="easter-egg-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-zinc-800 px-4 py-2 text-sm text-white shadow-lg dark:bg-zinc-200 dark:text-zinc-900"
+              className={`easter-egg-toast fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-zinc-800 px-4 py-2 text-sm text-white shadow-lg transition-all duration-300 ease-out dark:bg-zinc-200 dark:text-zinc-900 ${
+                eggRetracting ? "easter-egg-retract" : ""
+              }`}
               role="status"
               aria-live="polite"
             >
