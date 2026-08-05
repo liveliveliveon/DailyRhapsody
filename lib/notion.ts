@@ -238,7 +238,7 @@ async function walkBlocks(
   } while (cursor);
 }
 
-async function extractBodyMarkdown(pageId: string): Promise<string> {
+export async function extractBodyMarkdown(pageId: string): Promise<string> {
   const parts: string[] = [];
   try {
     await walkBlocks(pageId, 0, parts);
