@@ -12,7 +12,11 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const from = searchParams.get("from") ?? "/admin";
+  // 防开放重定向：只接受站内相对路径。`//evil.com` 会被浏览器当协议相对 URL
+  // 解析成外站，所以必须一并排除。
+  const rawFrom = searchParams.get("from") ?? "/admin";
+  const from =
+    rawFrom.startsWith("/") && !rawFrom.startsWith("//") ? rawFrom : "/admin";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
