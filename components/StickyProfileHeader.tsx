@@ -321,7 +321,19 @@ export default function StickyProfileHeader({
       : Math.max(HEADER_COLLAPSED, HEADER_EXPANDED - scrollY);
   const isCollapsed = isReturning || scrollY >= COLLAPSE_AT;
 
-  const bgUrl = profile?.headerBg?.trim() || "/header-bg.png";
+  // headerBg 会被插进 CSS `url(...)`，只放行站内相对路径和 http(s)，
+  // 挡掉 javascript: / data: 之类的协议注入。
+  const rawBgUrl = profile?.headerBg?.trim() || "/header-bg.png";
+  const bgUrl = (() => {
+    if (rawBgUrl.startsWith("/")) return rawBgUrl;
+    try {
+      const { protocol } = new URL(rawBgUrl);
+      if (protocol === "https:" || protocol === "http:") return rawBgUrl;
+    } catch {
+      /* 非法 URL，落到兜底图 */
+    }
+    return "/header-bg.png";
+  })();
 
   function renderAvatar(size: "sm" | "lg") {
     const ring = (
