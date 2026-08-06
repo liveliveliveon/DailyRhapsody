@@ -138,6 +138,22 @@ function richTextToPlain(items: RichTextItemResponse[]): string {
   return items.map((i) => i.plain_text).join("");
 }
 
+/**
+ * 终端输出的 box-drawing 表格（CLI 里 ┌─┬─┐ 画出来的那种）被粘进 Notion 后是
+ * 普通 paragraph。这类文本含上百个连续 ─ 且中间无空格，浏览器找不到断行点，
+ * 会把正文容器整个撑破（「AGV产业思考」一文即如此，横向溢出到页面外）。
+ *
+ * 它本质是预格式化文本，包成代码块交给 <pre> 渲染：等宽对齐得以保留，超宽部分
+ * 由 PROSE class 里的 [&_pre]:overflow-x-auto 变成块内横向滚动，不再溢出正文。
+ */
+const TERMINAL_ART_RE = /[┌┐└┘├┤┬┴┼╭╮╰╯]|[─━]{3,}/;
+
+function asCodeFence(text: string): string {
+  // 正文自身含 ``` 时换更长的围栏，避免代码块被提前闭合
+  const fence = text.includes("```") ? "~~~~" : "```";
+  return `${fence}\n${text}\n${fence}`;
+}
+
 function richTextToMarkdown(items: RichTextItemResponse[]): string {
   return items
     .map((i) => {
@@ -155,8 +171,12 @@ function richTextToMarkdown(items: RichTextItemResponse[]): string {
 
 function blockToMarkdown(b: BlockObjectResponse): string {
   switch (b.type) {
-    case "paragraph":
+    case "paragraph": {
+      const plain = richTextToPlain(b.paragraph.rich_text);
+      // 用纯文本包围栏：加粗/链接等 markdown 标记在 <pre> 里会显示成字面量
+      if (TERMINAL_ART_RE.test(plain)) return asCodeFence(plain);
       return richTextToMarkdown(b.paragraph.rich_text);
+    }
     case "heading_1":
       return `# ${richTextToMarkdown(b.heading_1.rich_text)}`;
     case "heading_2":
