@@ -11,6 +11,22 @@ type Bucket = {
 
 const buckets = new Map<string, Bucket>();
 
+/**
+ * 惰性清理过期桶。buckets 以 `${scope}:${ip}` 为 key，只增不删的话，
+ * 实例存活期间每个来访 IP 都会留下一条永不回收的记录（serverless 实例可复用数小时）。
+ * 不用 setInterval：serverless 上定时器不保证执行，且会阻止实例冻结。
+ */
+const BUCKET_CLEANUP_INTERVAL_MS = 60_000;
+let lastBucketCleanup = Date.now();
+
+function cleanupExpiredBuckets(now: number): void {
+  if (now - lastBucketCleanup < BUCKET_CLEANUP_INTERVAL_MS) return;
+  lastBucketCleanup = now;
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt <= now) buckets.delete(key);
+  }
+}
+
 const BOT_UA_RE =
   /(bot|spider|crawler|curl|wget|python-requests|scrapy|httpclient|headless|phantom|playwright|puppeteer|go-http-client|axios|got|node-fetch|postman|insomnia|rest-client|java|php|ruby|perl|dotnet|csharp)/i;
 
@@ -226,6 +242,7 @@ export async function guardApiRequest(
   }
 
   const now = Date.now();
+  cleanupExpiredBuckets(now);
   const key = `${scope}:${ip}`;
   const current = buckets.get(key);
   const bucket =

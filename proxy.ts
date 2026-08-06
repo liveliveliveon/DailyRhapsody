@@ -43,6 +43,7 @@ function passPublicDataApi(req: NextRequest): boolean {
 function isProtectedPublicApi(pathname: string, method: string): boolean {
   if (method === "GET" && pathname === "/api/profile") return true;
   if (method === "GET" && pathname.startsWith("/api/moments")) return true;
+  if (method === "GET" && pathname.startsWith("/api/reference")) return true;
   if (!pathname.startsWith("/api/diaries")) return false;
   if (method === "GET") return true;
   if (method === "POST") {
@@ -53,6 +54,7 @@ function isProtectedPublicApi(pathname: string, method: string): boolean {
 
 function isGateIssuingPage(pathname: string, method: string): boolean {
   if (method !== "GET") return false;
+  if (pathname.startsWith("/reference")) return true;
   return (
     pathname === "/" ||
     pathname === "/entries" ||
@@ -234,6 +236,8 @@ export const config = {
     "/api/diaries/:path*",
     "/api/moments",
     "/api/moments/:path*",
+    "/api/reference",
+    "/api/reference/:path*",
     "/api/profile",
     "/api/analytics/collect",
     "/api/gate/:path*",
@@ -241,5 +245,7 @@ export const config = {
     "/entries",
     "/the-moment",
     "/about",
+    "/reference",
+    "/reference/:path*",
   ],
 };

@@ -21,6 +21,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { invalidateCache } from "@/lib/notion";
 import { invalidateMomentsCache } from "@/lib/notion-moments";
+import { invalidateReferenceCache } from "@/lib/notion-reference";
 
 function extractBearerToken(req: NextRequest): string | null {
   const auth = req.headers.get("authorization");
@@ -42,7 +43,9 @@ export async function POST(req: NextRequest) {
   try {
     await invalidateCache();
     await invalidateMomentsCache();
+    await invalidateReferenceCache();
     revalidatePath("/", "layout");
+    revalidatePath("/reference", "layout");
     return NextResponse.json({ revalidated: true, now: Date.now() });
   } catch (error) {
     // 不回显具体错误信息给客户端（避免泄漏 Notion / Upstash 内部错误链）
