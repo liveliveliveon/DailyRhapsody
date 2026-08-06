@@ -43,8 +43,24 @@ export function useReference(selectedTag: string | null): UseReferenceState {
   const [items, setItems] = useState<ReferenceListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [tagCounts, setTagCounts] = useState<{ name: string; value: number }[]>([]);
-  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  /* ── gate 就绪时的重加载触发器 ── */
+  const [gateGen, setGateGen] = useState(0);
+  useEffect(() => {
+    const onGateReady = () => setGateGen((g) => g + 1);
+    window.addEventListener("dr-gate-ready", onGateReady);
+    return () => window.removeEventListener("dr-gate-ready", onGateReady);
+  }, []);
+
+  /**
+   * loading 不用独立 state：它完全可以从「当前想要的请求」与「已完成的请求」之差派生。
+   * 这样 effect body 里不需要同步 setState（react-hooks/set-state-in-effect），
+   * 也避免了切 tag 时先渲染一帧旧数据、再翻转 loading 的级联渲染。
+   */
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const requestKey = `${selectedTag ?? ""}#${gateGen}`;
+  const loading = loadedKey !== requestKey;
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const appendInFlightRef = useRef(false);
@@ -75,22 +91,14 @@ export function useReference(selectedTag: string | null): UseReferenceState {
     [],
   );
 
-  const [gateGen, setGateGen] = useState(0);
   useEffect(() => {
-    const onGateReady = () => setGateGen((g) => g + 1);
-    window.addEventListener("dr-gate-ready", onGateReady);
-    return () => window.removeEventListener("dr-gate-ready", onGateReady);
-  }, []);
-
-  useEffect(() => {
-    setLoading(true);
     loadPage(0, false, selectedTag)
       .catch(() => {
         setItems([]);
         setTotal(0);
       })
-      .finally(() => setLoading(false));
-  }, [selectedTag, loadPage, gateGen]);
+      .finally(() => setLoadedKey(requestKey));
+  }, [selectedTag, loadPage, requestKey]);
 
   useEffect(() => {
     const el = sentinelRef.current;
