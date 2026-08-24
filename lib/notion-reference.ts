@@ -85,10 +85,16 @@ async function getRedis() {
 const LIST_CACHE_KEY = "notion:reference:items";
 const ITEM_CACHE_PREFIX = "notion:reference:item:";
 const CACHE_STALE_MS = (Number(process.env.NOTION_CACHE_STALE_S) || 300) * 1000;
-const CACHE_HARD_TTL_S = 24 * 60 * 60;
+// 48h + 下限钳制：与 lib/notion.ts 同因（NOTION_CACHE_TTL 曾被误配为 300 压塌 SWR）。
+const CACHE_HARD_TTL_S = 48 * 60 * 60;
 
 function listTtl(): number {
-  return Number(process.env.NOTION_CACHE_TTL) || CACHE_HARD_TTL_S;
+  // Math.floor：Redis 的 EX 只接受整数，小数会让 set 被拒、缓存永远写不进去
+  const configured = Math.floor(Number(process.env.NOTION_CACHE_TTL));
+  if (!Number.isFinite(configured) || configured < CACHE_HARD_TTL_S) {
+    return CACHE_HARD_TTL_S;
+  }
+  return configured;
 }
 
 type ListCacheEntry = { data: ReferenceItem[]; refreshedAt: number };
@@ -138,7 +144,9 @@ async function setCachedItem(item: ReferenceItem): Promise<void> {
   const redis = await getRedis();
   if (!redis) return;
   try {
-    await redis.set(`${ITEM_CACHE_PREFIX}${item.id}`, item, { ex: CACHE_HARD_TTL_S });
+    // 单条正文缓存无 SWR（过期即重拉），保持 24h 独立 TTL——不随列表硬 TTL 提到
+    // 48h，否则作者改完正文最长 48h 才对外更新（列表元数据仍有 5min SWR 兜底）
+    await redis.set(`${ITEM_CACHE_PREFIX}${item.id}`, item, { ex: 24 * 60 * 60 });
   } catch {
     // ignore
   }
@@ -271,17 +279,22 @@ async function refreshFromNotion(): Promise<ReferenceItem[]> {
   return items;
 }
 
-function triggerBackgroundRefresh(): void {
-  if (_pendingRefresh) return;
-  const task = refreshFromNotion()
-    .catch((e) => {
-      console.warn("[notion-reference] background refresh failed:", e);
-      return [] as ReferenceItem[];
-    })
-    .finally(() => {
+function ensureRefreshTask(): Promise<ReferenceItem[]> {
+  if (!_pendingRefresh) {
+    _pendingRefresh = refreshFromNotion().finally(() => {
       _pendingRefresh = null;
     });
-  _pendingRefresh = task;
+  }
+  return _pendingRefresh;
+}
+
+function triggerBackgroundRefresh(): void {
+  if (_pendingRefresh) return;
+  // 错误只在后台路径吞掉；同步冷路径复用同一任务时失败仍向上抛（见 notion.ts 同位置注释）
+  const task = ensureRefreshTask().catch((e) => {
+    console.warn("[notion-reference] background refresh failed:", e);
+    return [] as ReferenceItem[];
+  });
   import("@vercel/functions").then(({ waitUntil }) => waitUntil(task)).catch(() => {
     // 非 Vercel runtime：fire-and-forget
   });
@@ -299,7 +312,13 @@ export async function getReferenceItems(): Promise<ReferenceItem[]> {
     if (age > CACHE_STALE_MS) triggerBackgroundRefresh();
     return cached.data;
   }
-  return refreshFromNotion();
+  return ensureRefreshTask();
+}
+
+/** Cron 预热入口：强制重拉并写缓存，返回条数。与用户请求共享 in-flight 去重。 */
+export async function warmReferenceCache(): Promise<number> {
+  const items = await ensureRefreshTask();
+  return items.length;
 }
 
 /**

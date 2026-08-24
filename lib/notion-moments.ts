@@ -88,7 +88,17 @@ async function getRedis() {
 
 const CACHE_KEY = "notion:moments";
 const CACHE_STALE_MS = (Number(process.env.NOTION_CACHE_STALE_S) || 300) * 1000;
-const CACHE_HARD_TTL_S = 24 * 60 * 60;
+// 48h + 下限钳制：与 lib/notion.ts 同因（NOTION_CACHE_TTL 曾被误配为 300 压塌 SWR）。
+const CACHE_HARD_TTL_S = 48 * 60 * 60;
+
+function cacheTtl(): number {
+  // Math.floor：Redis 的 EX 只接受整数，小数会让 set 被拒、缓存永远写不进去
+  const configured = Math.floor(Number(process.env.NOTION_CACHE_TTL));
+  if (!Number.isFinite(configured) || configured < CACHE_HARD_TTL_S) {
+    return CACHE_HARD_TTL_S;
+  }
+  return configured;
+}
 
 type CacheEntry = { data: (PublicMoment & { isPublic: boolean })[]; refreshedAt: number };
 
@@ -113,9 +123,8 @@ async function setCache(items: (PublicMoment & { isPublic: boolean })[]): Promis
   const redis = await getRedis();
   if (!redis) return;
   try {
-    const ttl = Number(process.env.NOTION_CACHE_TTL) || CACHE_HARD_TTL_S;
     const entry: CacheEntry = { data: items, refreshedAt: Date.now() };
-    await redis.set(CACHE_KEY, entry, { ex: ttl });
+    await redis.set(CACHE_KEY, entry, { ex: cacheTtl() });
   } catch {
     // non-fatal
   }
@@ -316,20 +325,25 @@ async function refreshMomentsFromNotion(): Promise<(PublicMoment & { isPublic: b
   return items;
 }
 
-// 后台正在进行的重拉任务，避免多请求并发触发多次重拉
+// 正在进行的重拉任务（后台 SWR 与同步冷路径共用），避免多请求并发触发多次重拉
 let _pendingRefresh: Promise<(PublicMoment & { isPublic: boolean })[]> | null = null;
+
+function ensureRefreshTask(): Promise<(PublicMoment & { isPublic: boolean })[]> {
+  if (!_pendingRefresh) {
+    _pendingRefresh = refreshMomentsFromNotion().finally(() => {
+      _pendingRefresh = null;
+    });
+  }
+  return _pendingRefresh;
+}
 
 function triggerBackgroundRefresh(): void {
   if (_pendingRefresh) return;
-  const task = refreshMomentsFromNotion()
-    .catch((e) => {
-      console.warn("[notion-moments] background refresh failed:", e);
-      return [] as (PublicMoment & { isPublic: boolean })[];
-    })
-    .finally(() => {
-      _pendingRefresh = null;
-    });
-  _pendingRefresh = task;
+  // 错误只在后台路径吞掉；同步冷路径复用同一任务时失败仍向上抛（见 notion.ts 同位置注释）
+  const task = ensureRefreshTask().catch((e) => {
+    console.warn("[notion-moments] background refresh failed:", e);
+    return [] as (PublicMoment & { isPublic: boolean })[];
+  });
   import("@vercel/functions").then(({ waitUntil }) => waitUntil(task)).catch(() => {
     // 不在 Vercel 环境：fire-and-forget
   });
@@ -354,7 +368,13 @@ export async function getMoments(): Promise<(PublicMoment & { isPublic: boolean 
     }
     return cached.data;
   }
-  return refreshMomentsFromNotion();
+  return ensureRefreshTask();
+}
+
+/** Cron 预热入口：强制重拉并写缓存，返回条数。与用户请求共享 in-flight 去重。 */
+export async function warmMomentsCache(): Promise<number> {
+  const items = await ensureRefreshTask();
+  return items.length;
 }
 
 /**

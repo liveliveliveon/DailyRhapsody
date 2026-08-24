@@ -241,6 +241,7 @@ export const config = {
     "/api/profile",
     "/api/analytics/collect",
     "/api/gate/:path*",
+    "/api/honeypot",
     "/",
     "/entries",
     "/the-moment",
