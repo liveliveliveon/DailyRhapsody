@@ -69,6 +69,15 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
   const [appendRetryGen, setAppendRetryGen] = useState(0);
   const appendRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
+   * 在途 append 请求的 controller。生命周期跟随请求本身而不是发起它的 effect——
+   * observer/hash effect 因 loadingMore、items 翻转会频繁重建，若在它们的
+   * cleanup 里 abort，每条 append 都会被自己触发的重建立刻取消：catch 判为
+   * 「主动取消」绕过冷却，finally 翻回 loadingMore 后 observer 重挂再发，
+   * 形成请求风暴（2026-08-25 自封 IP 事故）。
+   * 只在首屏换血（切 tag / gate 重拉）与组件卸载时中止。
+   */
+  const appendCtrlRef = useRef<AbortController | null>(null);
+  /**
    * 当前 items 实际归属的 tag（首页请求成功时写入）。失败时用它区分两种场景：
    * - 切到新 tag 后首页失败 → 必须清空（否则显示「tag B 共 N 篇」+ tag A 的列表，
    *   一滚动还会把 B 的下一页追加到 A 的数据后面，跨 tag 混排）；
@@ -135,6 +144,9 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
    * 同 tag 刷新失败保留旧数据，「加载失败」不再被渲染成「暂无文章」。 */
   useEffect(() => {
     const ctrl = new AbortController();
+    // 首屏换血后列表整体重置，在途的旧 append 结果不能再接到新列表后面
+    appendCtrlRef.current?.abort();
+    appendCtrlRef.current = null;
     setLoading(true);
     loadPage(0, false, selectedTag, ctrl.signal)
       .catch(() => {
@@ -184,25 +196,27 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
     // items 尚未归属当前 tag（首页在途/失败）时不允许 append，防跨 tag 混排
     if (loadedTagRef.current !== selectedTag) return;
     const ctrl = new AbortController();
+    appendCtrlRef.current = ctrl;
     appendInFlightRef.current = true;
     setLoadingMore(true);
     loadPage(items.length, true, selectedTag, ctrl.signal)
       .catch(() => {
-        if (ctrl.signal.aborted) return; // effect 重建时主动取消的，不计失败
+        if (ctrl.signal.aborted) return; // 首屏换血/卸载时主动取消的，不计失败
         appendCooldownUntilRef.current = Date.now() + 5000;
       })
       .finally(() => {
+        if (appendCtrlRef.current === ctrl) appendCtrlRef.current = null;
         appendInFlightRef.current = false;
         setLoadingMore(false);
       });
-    return () => ctrl.abort();
+    // 不在 cleanup 里 abort：本 effect 因 loadingMore/items 变化而重建，
+    // 若随 cleanup 中止会把刚发起的请求自己取消掉（见 appendCtrlRef 注释）。
   }, [loading, items, total, hasMore, loadingMore, selectedTag, loadPage]);
 
   /* ── 无限滚动：sentinel 进视窗就 append ── */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore || loading) return;
-    const ctrl = new AbortController();
     const obs = new IntersectionObserver(
       (entries) => {
         if (
@@ -214,12 +228,14 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
         if (Date.now() < appendCooldownUntilRef.current) return;
         // items 尚未归属当前 tag（首页在途/失败）时不允许 append，防跨 tag 混排
         if (loadedTagRef.current !== selectedTag) return;
+        const ctrl = new AbortController();
+        appendCtrlRef.current = ctrl;
         appendInFlightRef.current = true;
         setLoadingMore(true);
         const offset = items.length;
         loadPage(offset, true, selectedTag, ctrl.signal)
           .catch(() => {
-            if (ctrl.signal.aborted) return; // effect 重建时主动取消的，不计失败
+            if (ctrl.signal.aborted) return; // 首屏换血/卸载时主动取消的，不计失败
             // 冷却 5s：避免「失败 → observer 重建 → sentinel 仍在视窗 → 立即重试」
             // 的自旋打满限流（进而累计违规自封 IP）
             appendCooldownUntilRef.current = Date.now() + 5000;
@@ -232,6 +248,7 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
             }, 5100);
           })
           .finally(() => {
+            if (appendCtrlRef.current === ctrl) appendCtrlRef.current = null;
             appendInFlightRef.current = false;
             setLoadingMore(false);
           });
@@ -239,18 +256,18 @@ export function useEntries(selectedTag: string | null): UseEntriesState {
       { rootMargin: "200px", threshold: 0 },
     );
     obs.observe(el);
-    // 注意：恢复定时器不在这里清理——本 effect 因 loadingMore 翻转而频繁重建，
+    // 注意：cleanup 只拆 observer，不 abort 在途 append（见 appendCtrlRef 注释）；
+    // 恢复定时器也不在这里清理——本 effect 因 loadingMore 翻转而频繁重建，
     // 若随 cleanup 清掉，失败后刚设的定时器会立即被下一次重建清除，恢复机制失效。
-    // 它的生命周期跨 effect 重建，只在组件卸载时清理（见下面的 mount effect）。
-    return () => {
-      ctrl.abort();
-      obs.disconnect();
-    };
+    // 它们的生命周期跨 effect 重建，只在组件卸载时清理（见下面的 mount effect）。
+    return () => obs.disconnect();
   }, [hasMore, loading, loadingMore, items.length, selectedTag, loadPage, appendRetryGen]);
 
-  /* ── 卸载时清理分页恢复定时器 ── */
+  /* ── 卸载时中止在途 append、清理分页恢复定时器 ── */
   useEffect(() => {
     return () => {
+      appendCtrlRef.current?.abort();
+      appendCtrlRef.current = null;
       if (appendRetryTimerRef.current) {
         clearTimeout(appendRetryTimerRef.current);
         appendRetryTimerRef.current = null;
