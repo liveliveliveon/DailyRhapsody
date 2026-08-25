@@ -35,8 +35,24 @@ export function useMoments({ active }: { active: boolean }): UseMomentsState {
 
   const loadLock = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  /**
+   * 分页失败后的冷却截止时间戳。没有它，append 失败 → loadingMore 翻回 false →
+   * observer 重建 → sentinel 仍在视窗 → 立即重试，形成请求自旋打满限流。
+   */
+  const appendCooldownUntilRef = useRef(0);
+  /** 冷却到期后自增，触发 observer effect 重建以恢复分页（否则 sentinel 一直
+   *  停在视窗内不会产生新 intersection 事件，分页会静默停摆）。 */
+  const [appendRetryGen, setAppendRetryGen] = useState(0);
+  const appendRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 在途 append 请求的 controller。生命周期跟随请求本身而不是 observer effect——
+   * observer effect 因 loadingMore / offset 翻转会频繁重建，若在它的 cleanup 里
+   * abort，每条 append 都会被自己触发的重建立刻取消。
+   * 只在首屏换血（gate 重拉）与组件卸载时中止。
+   */
+  const appendCtrlRef = useRef<AbortController | null>(null);
 
-  const loadPage = useCallback(async (fromOffset: number, replace: boolean) => {
+  const loadPage = useCallback(async (fromOffset: number, replace: boolean, signal?: AbortSignal) => {
     if (replace) {
       setLoading(true);
     } else {
@@ -48,26 +64,41 @@ export function useMoments({ active }: { active: boolean }): UseMomentsState {
     try {
       const res = await fetchWithTimeout(
         `/api/moments?limit=${PAGE_LIMIT}&offset=${fromOffset}`,
-        { credentials: "include" },
+        { credentials: "include", signal },
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (replace) setMoments([]);
-        setHasMore(false);
-        return;
-      }
+      if (!res.ok) throw new Error(String(res.status));
       const next: PublicMoment[] = Array.isArray(data.items) ? data.items : [];
       setHasMore(!!data.hasMore);
       setOffset(typeof data.nextOffset === "number" ? data.nextOffset : fromOffset + next.length);
       if (replace) setMoments(next);
       else setMoments((prev) => [...prev, ...next]);
     } catch {
-      if (replace) setMoments([]);
-      setHasMore(false);
+      // 主动取消的请求（gate 重拉换血 / 卸载），不动任何 state
+      if (signal?.aborted) return;
+      // 失败保留已有数据、不动 hasMore：不把「加载失败」渲染成空列表，
+      // 恢复交给 gate 重拉或下面的冷却重试
+      if (!replace) {
+        // 冷却 5s：避免「失败 → observer 重建 → sentinel 仍在视窗 → 立即重试」
+        // 的自旋打满限流
+        appendCooldownUntilRef.current = Date.now() + 5000;
+        // 冷却到期后 bump appendRetryGen 重建 observer 恢复分页——
+        // sentinel 停在视窗内不会再产生 intersection 事件，不主动重建会静默停摆
+        if (appendRetryTimerRef.current) clearTimeout(appendRetryTimerRef.current);
+        appendRetryTimerRef.current = setTimeout(() => {
+          appendRetryTimerRef.current = null;
+          setAppendRetryGen((g) => g + 1);
+        }, 5100);
+      }
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
-      if (!replace) loadLock.current = false;
+      if (replace) {
+        // 被换血取消的旧首屏请求不动 loading——新一轮已 setLoading(true)，
+        // 这里再翻回 false 会把新一轮的 loading 态闪掉
+        if (!signal?.aborted) setLoading(false);
+      } else {
+        setLoadingMore(false);
+        loadLock.current = false;
+      }
     }
   }, []);
 
@@ -79,9 +110,16 @@ export function useMoments({ active }: { active: boolean }): UseMomentsState {
     return () => window.removeEventListener("dr-gate-ready", onGateReady);
   }, []);
 
-  /* 首次拉取 + gate 就绪后重拉 */
+  /* 首次拉取 + gate 就绪后重拉。
+   * AbortController cleanup：gate 就绪触发二次执行时取消上一条 in-flight 请求，
+   * 被取消的旧请求 reject 后绝不能再动 state——否则后失败的会把先成功的覆盖。 */
   useEffect(() => {
-    void loadPage(0, true);
+    const ctrl = new AbortController();
+    // 换血重拉后列表整体重置，在途的旧 append 结果不能再接到新列表后面
+    appendCtrlRef.current?.abort();
+    appendCtrlRef.current = null;
+    void loadPage(0, true, ctrl.signal);
+    return () => ctrl.abort();
   }, [loadPage, gateGen]);
 
   /* 无限滚动：仅在动态 tab 激活时挂 IntersectionObserver */
@@ -92,13 +130,35 @@ export function useMoments({ active }: { active: boolean }): UseMomentsState {
     const obs = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting || loadingMore) return;
-        void loadPage(offset, false);
+        if (Date.now() < appendCooldownUntilRef.current) return;
+        // 已有在途 append 时不进入，避免把它的 controller 从 appendCtrlRef 顶掉
+        if (loadLock.current) return;
+        const ctrl = new AbortController();
+        appendCtrlRef.current = ctrl;
+        void loadPage(offset, false, ctrl.signal).finally(() => {
+          if (appendCtrlRef.current === ctrl) appendCtrlRef.current = null;
+        });
       },
       { rootMargin: SCROLL_ROOT_MARGIN, threshold: 0 },
     );
     obs.observe(el);
+    // cleanup 只拆 observer，不 abort 在途 append（见 appendCtrlRef 注释）；
+    // 恢复定时器也不在这里清理——本 effect 频繁重建，若随 cleanup 清掉，
+    // 失败后刚设的定时器会立即被下一次重建清除，恢复机制失效。
     return () => obs.disconnect();
-  }, [active, hasMore, loading, loadingMore, offset, loadPage]);
+  }, [active, hasMore, loading, loadingMore, offset, loadPage, appendRetryGen]);
+
+  /* 卸载时中止在途 append、清理分页恢复定时器 */
+  useEffect(() => {
+    return () => {
+      appendCtrlRef.current?.abort();
+      appendCtrlRef.current = null;
+      if (appendRetryTimerRef.current) {
+        clearTimeout(appendRetryTimerRef.current);
+        appendRetryTimerRef.current = null;
+      }
+    };
+  }, []);
 
   return { moments, hasMore, loading, loadingMore, sentinelRef };
 }
