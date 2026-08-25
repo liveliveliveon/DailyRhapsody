@@ -48,11 +48,13 @@ export default function RootLayout({
         {children}
         <GateClient />
         <AnalyticsCollector />
-        {/* Anti-Scrape Honeypot */}
-        <a 
-          href="/api/honeypot" 
-          aria-hidden="true" 
-          tabIndex={-1} 
+        {/* Anti-Scrape Honeypot。rel=nofollow 让守规矩的搜索引擎不追这个链接
+            （追了也只会被 route 的 UA 白名单拒绝而非封禁，双保险） */}
+        <a
+          href="/api/honeypot"
+          aria-hidden="true"
+          tabIndex={-1}
+          rel="nofollow"
           style={{ position: 'absolute', top: -100, left: -100, width: 1, height: 1, overflow: 'hidden', opacity: 0 }}
         >
           DailyRhapsody Feed

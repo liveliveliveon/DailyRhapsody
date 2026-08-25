@@ -9,7 +9,9 @@
  *   NOTION_DATABASE_ID    – 32-char hex ID of the diary database
  *
  * Optional:
- *   NOTION_CACHE_TTL      – Upstash cache TTL in seconds (default 60)
+ *   NOTION_CACHE_STALE_S  – SWR stale threshold in seconds (default 300)
+ *   NOTION_CACHE_TTL      – Redis hard TTL in seconds (default 48h, floor-clamped;
+ *                           this is NOT the freshness knob — see CACHE_MIN_TTL_S)
  */
 
 import { Client } from "@notionhq/client";
@@ -79,13 +81,25 @@ const CACHE_KEY = "notion:diaries";
 // stale-while-revalidate 阈值：缓存超过这个时间就在后台异步重拉，但仍把旧数据立即返回给用户。
 // 默认 5 分钟，作者改完 Notion 最长 5min 看到新内容；显式调 /api/revalidate 可立即清掉。
 const CACHE_STALE_MS = (Number(process.env.NOTION_CACHE_STALE_S) || 300) * 1000;
-// Redis TTL 兜底：远大于 STALE，让缓存几乎永不"消失"，只会变 stale。24h 后再不访问才被清。
-const CACHE_HARD_TTL_S = 24 * 60 * 60;
+// Redis TTL 兜底：远大于 STALE，让缓存几乎永不"消失"，只会变 stale。
+// 48h：对每日一次的 Cron 预热留出一整天余量（24h 会和 Cron 周期精确撞线）。
+const CACHE_HARD_TTL_S = 48 * 60 * 60;
+// 硬 TTL 下限。2026-08 事故：生产把 NOTION_CACHE_TTL 配成 300，恰好等于 stale
+// 阈值，SWR 彻底失效——缓存不是变 stale 而是直接消失，每 5 分钟制造一次
+// 20-53s 的同步全量冷拉，前端 30s 超时后显示「暂无文章」。
+// 硬 TTL 只是 SWR 的兜底网，不是新鲜度旋钮（新鲜度由 NOTION_CACHE_STALE_S 控制），
+// 因此环境变量只允许加长、不允许把它压到冷窗口频发的量级。
+const CACHE_MIN_TTL_S = CACHE_HARD_TTL_S;
 
 type CacheEntry = { data: Diary[]; refreshedAt: number };
 
 function cacheTtl(): number {
-  return Number(process.env.NOTION_CACHE_TTL) || CACHE_HARD_TTL_S;
+  // Math.floor：Redis 的 EX 只接受整数，小数会让 set 被拒、缓存永远写不进去
+  const configured = Math.floor(Number(process.env.NOTION_CACHE_TTL));
+  if (!Number.isFinite(configured) || configured < CACHE_MIN_TTL_S) {
+    return CACHE_HARD_TTL_S;
+  }
+  return configured;
 }
 
 async function getCached(): Promise<CacheEntry | null> {
@@ -388,8 +402,20 @@ function mapPageToDiary(page: PageObjectResponse, bodyMarkdown: string): Diary {
   };
 }
 
-// 后台正在进行的重拉任务，避免多请求并发触发多次重拉
+// 正在进行的重拉任务（后台 SWR 与同步冷路径共用），避免多请求并发触发多次重拉。
+// 之前只有后台路径去重：N 个并发冷请求会跑 N 份完整抓取并互相争抢 Notion
+// 速率配额，实测把单份 22s 拖到 53s。
 let _pendingRefresh: Promise<Diary[]> | null = null;
+
+/** 取得当前的重拉任务；没有就启动一份。所有调用方共享同一个 Promise。 */
+function ensureRefreshTask(): Promise<Diary[]> {
+  if (!_pendingRefresh) {
+    _pendingRefresh = refreshDiariesFromNotion().finally(() => {
+      _pendingRefresh = null;
+    });
+  }
+  return _pendingRefresh;
+}
 
 async function refreshDiariesFromNotion(): Promise<Diary[]> {
   const client = getClient();
@@ -431,15 +457,13 @@ async function refreshDiariesFromNotion(): Promise<Diary[]> {
 
 function triggerBackgroundRefresh(): void {
   if (_pendingRefresh) return; // 已有任务在跑，避免堆叠
-  const task = refreshDiariesFromNotion()
-    .catch((e) => {
-      console.warn("[notion] background refresh failed:", e);
-      return [] as Diary[];
-    })
-    .finally(() => {
-      _pendingRefresh = null;
-    });
-  _pendingRefresh = task;
+  // 后台路径吞掉错误（用户继续看旧数据）；catch 产生的新 Promise 不写回
+  // _pendingRefresh，同步冷路径复用同一任务时失败仍会向上抛（route 返回 500，
+  // 而不是拿到 [] 渲染成「暂无文章」）。
+  const task = ensureRefreshTask().catch((e) => {
+    console.warn("[notion] background refresh failed:", e);
+    return [] as Diary[];
+  });
   // Vercel serverless function 在响应返回后会冻结实例，导致后台 Promise 被中断。
   // 用 waitUntil 让 runtime 等任务完成（不延长用户响应时间）。
   // 动态 import 避免在没有 @vercel/functions 的环境（如本地 dev）报错。
@@ -470,8 +494,17 @@ export async function getDiaries(): Promise<Diary[]> {
     }
     return cached.data;
   }
-  // 完全无缓存：同步拉
-  return refreshDiariesFromNotion();
+  // 完全无缓存：同步拉（复用 in-flight 任务，并发冷请求只跑一份抓取）
+  return ensureRefreshTask();
+}
+
+/**
+ * Cron 预热入口：无视 stale 阈值强制重拉并写缓存，返回条数。
+ * 与用户请求共享 in-flight 去重。
+ */
+export async function warmDiariesCache(): Promise<number> {
+  const diaries = await ensureRefreshTask();
+  return diaries.length;
 }
 
 /**
