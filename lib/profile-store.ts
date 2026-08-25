@@ -1,3 +1,4 @@
+import { Redis } from "@upstash/redis";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -38,6 +39,17 @@ function normalizeProfile(raw: unknown): Profile {
   };
 }
 
+/**
+ * Vercel serverless 的部署目录只读、实例间不共享也不持久，写本地文件的
+ * profile 在生产从来存不住（保存必 500，读永远是默认值）。有 KV 凭证时
+ * 一律走 Upstash Redis；无凭证的环境（离线本地）退回文件存储。
+ */
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
+const redis = redisUrl && redisToken ? new Redis({ url: redisUrl, token: redisToken }) : null;
+
+const PROFILE_KEY = "dr:profile";
+
 const DATA_DIR = join(process.cwd(), "data");
 const DATA_FILE = join(DATA_DIR, "profile.json");
 
@@ -56,7 +68,9 @@ async function writeToFile(profile: Profile): Promise<void> {
 }
 
 export async function getProfile(): Promise<Profile> {
-  const p = await readFromFile();
+  const p = redis
+    ? await redis.get<Record<string, unknown>>(PROFILE_KEY)
+    : await readFromFile();
   if (p) return normalizeProfile(p);
   return { ...DEFAULT_PROFILE };
 }
@@ -68,6 +82,7 @@ export async function saveProfile(updates: Partial<Profile>): Promise<Profile> {
     if (v !== undefined) (filtered as Record<string, unknown>)[k] = v;
   }
   const next: Profile = normalizeProfile({ ...current, ...filtered });
-  await writeToFile(next);
+  if (redis) await redis.set(PROFILE_KEY, next);
+  else await writeToFile(next);
   return next;
 }

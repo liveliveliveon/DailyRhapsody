@@ -457,7 +457,11 @@ export default function AdminPage() {
         setProfile(await res.json());
         setProfileEditing(false);
         setProfileDraft(null);
+      } else {
+        alert(`保存失败（HTTP ${res.status}），请重试`);
       }
+    } catch {
+      alert("保存失败：网络错误，请重试");
     } finally {
       setProfileSaving(false);
     }
